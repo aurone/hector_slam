@@ -258,7 +258,7 @@ HectorMappingRos::~HectorMappingRos()
 void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 {
     ofstream scanwriter;
-    scanwriter.open("/home/sameer/slamstuff/laserscan.csv");
+    scanwriter.open("laserscan.csv");
     double minangle=0, maxangle=0, angleinc=0, minrange=0, maxrange=0, lrange=0, laserx=0, lasery=0, current_angle=0;
     minangle = scan.angle_min;
     maxangle = scan.angle_max;
@@ -295,7 +295,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     trafo.rightCols<1>() = t;
     Eigen::Vector4f laserpoint;
     initialscanguess_ = Eigen::MatrixXd::Zero(int(size_estimate),2);
-    scanwriter.open("/home/sameer/slamstuff/laserscan_transformed.csv");
+    scanwriter.open("laserscan_transformed.csv");
     int count = 0;
     for(int i=0;i<int(size_estimate);i++)
     {
@@ -380,7 +380,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     guesspose.pose.pose.orientation.x = quat.x();
     guesspose.pose.pose.orientation.y = quat.y();
     guesspose.pose.pose.orientation.z = quat.z();
-    scanwriter.open("/home/sameer/slamstuff/laserscan_corrected.csv");
+    scanwriter.open("laserscan_corrected.csv");
     for (int i = 0; i<initialscanguess_.rows(); i++)
     {
         laserpoint(0) = initialscanguess_(i,0);
@@ -399,7 +399,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 }
 void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 {
-    if(first_scan_)
+    if (first_scan_ && load_map_)
     {
         first_scan_ = false;
         poseCorrection(scan);
@@ -776,7 +776,7 @@ void HectorMappingRos::loadMap()
             mapr_->info.origin.orientation.y, mapr_->info.origin.orientation.z,
             mapr_->info.origin.orientation.w);
     ofstream mapwriter;
-    mapwriter.open("/home/sameer/slamstuff/map_points_.csv");
+    mapwriter.open("map_points_.csv");
     double xoffset, yoffset, xcoord, ycoord, zcoord, mapwidth, mapheight, mapres;
     zcoord = 0;
     xoffset = 0;
