@@ -129,7 +129,6 @@ public:
 
   int getMapLevels() const { return mapRep->getMapLevels(); };
   const GridMap& getGridMap(int mapLevel = 0) const { return mapRep->getGridMap(mapLevel); };
-
   void addMapMutex(int i, MapLockerInterface* mapMutex) { mapRep->addMapMutex(i, mapMutex); };
   MapLockerInterface* getMapMutex(int i) { return mapRep->getMapMutex(i); };
 
@@ -137,11 +136,11 @@ public:
   void setUpdateFactorOccupied(float occupied_factor) { mapRep->setUpdateFactorOccupied(occupied_factor); };
   void setMapUpdateMinDistDiff(float minDist) { paramMinDistanceDiffForMapUpdate = minDist; };
   void setMapUpdateMinAngleDiff(float angleChange) { paramMinAngleDiffForMapUpdate = angleChange; };
-
+  MapRepresentationInterface* mapRep;
 protected:
 
-  MapRepresentationInterface* mapRep;
-
+  
+  
   Eigen::Vector3f lastMapUpdatePose;
   Eigen::Vector3f lastScanMatchPose;
   Eigen::Matrix3f lastScanMatchCov;

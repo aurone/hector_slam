@@ -4,7 +4,8 @@ project(hector_mapping)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS cmake_modules roscpp nav_msgs visualization_msgs tf message_filters laser_geometry tf_conversions message_generation)
+find_package(catkin REQUIRED COMPONENTS cmake_modules roscpp rosbag nav_msgs visualization_msgs tf message_filters laser_geometry tf_conversions message_generation)
+find_package(PCL REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS thread signals)
@@ -12,8 +13,10 @@ include_directories(${Boost_INCLUDE_DIRS})
 
 find_package(Eigen REQUIRED)
 include_directories(${EIGEN_INCLUDE_DIRS})
+include_directories(${PCL_INCLUDE_DIRS})
 add_definitions(${EIGEN_DEFINITIONS})
-
+add_definitions(${PCL_DEFINITIONS})
+link_directories(${PCL_LIBRARY_DIRS})
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -93,7 +96,7 @@ add_dependencies(hector_mapping hector_mapping_generate_messages_cpp)
 ## Specify libraries to link a library or executable target against
 target_link_libraries(hector_mapping
   ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
+  ${Boost_LIBRARIES} ${PCL_LIBRARIES}
 )
 
 #############

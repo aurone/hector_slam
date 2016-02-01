@@ -71,7 +71,8 @@ public:
   ~HectorMappingRos();
 
 
-  void scanCallback(const sensor_msgs::LaserScan& scan);
+  void scanCallback(sensor_msgs::LaserScan scan);
+  void poseCorrection(sensor_msgs::LaserScan scan);
   void sysMsgCallback(const std_msgs::String& string);
 
   bool mapCallback(nav_msgs::GetMap::Request  &req, nav_msgs::GetMap::Response &res);
@@ -143,7 +144,9 @@ protected:
 
   //-----------------------------------------------------------
   // Parameters
-
+  //Mod by Sameer
+  bool load_map;
+  //Mod by Sameer
   std::string p_base_frame_;
   std::string p_map_frame_;
   std::string p_odom_frame_;

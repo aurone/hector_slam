@@ -93,7 +93,7 @@ public:
 
   virtual int getMapLevels() const { return mapContainer.size(); };
   virtual const GridMap& getGridMap(int mapLevel) const { return mapContainer[mapLevel].getGridMap(); };
-
+  virtual GridMap& getGridMap(int mapLevel) { return mapContainer[mapLevel].getGridMap(); };
   virtual void addMapMutex(int i, MapLockerInterface* mapMutex)
   {
     mapContainer[i].addMapMutex(mapMutex);
@@ -165,9 +165,9 @@ public:
       map.setUpdateOccupiedFactor(occupied_factor);
     }
   }
-
-protected:
   std::vector<MapProcContainer> mapContainer;
+protected:
+  
   std::vector<DataContainer> dataContainers;
 };
 

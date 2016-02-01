@@ -68,7 +68,7 @@ public:
 
   virtual int getMapLevels() const { return 1; };
   virtual const GridMap& getGridMap(int mapLevel) const { return *gridMap; };
-
+  virtual GridMap& getGridMap(int mapLevel)  { return *gridMap; };
   virtual void onMapUpdated()
   {
     gridMapUtil->resetCachedData();
