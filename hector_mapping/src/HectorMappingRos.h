@@ -144,9 +144,6 @@ protected:
 
   //-----------------------------------------------------------
   // Parameters
-  //Mod by Sameer
-  bool load_map;
-  //Mod by Sameer
   std::string p_base_frame_;
   std::string p_map_frame_;
   std::string p_odom_frame_;
@@ -191,6 +188,18 @@ protected:
   float p_sqr_laser_max_dist_;
   float p_laser_z_min_value_;
   float p_laser_z_max_value_;
+
+  //Mod by Sameer
+  bool load_map_;   ///< Whether to wait for an initial map before starting slam
+  bool load_status_;
+  bool first_scan_;
+  geometry_msgs::PoseWithCovarianceStampedConstPtr initial_pose_slam_;
+  nav_msgs::OccupancyGrid::ConstPtr mapr_;
+  Eigen::MatrixXd map_points_;
+  Eigen::MatrixXd initialscanguess_;
+
+  void loadMap();
+  //Mod by Sameer
 };
 
 #endif

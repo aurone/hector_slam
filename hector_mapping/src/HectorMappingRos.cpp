@@ -51,13 +51,6 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/icp.h>
-#define foreach BOOST_FOREACH
-bool LOAD_STATUS = false;
-bool FIRST_SCAN = true;
-geometry_msgs::PoseWithCovarianceStampedConstPtr initial_pose_slam;
-nav_msgs::OccupancyGrid::ConstPtr mapr;
-Eigen::MatrixXd map_points;
-Eigen::MatrixXd initialscanguess;
 //Mod by sameer
 
 #ifndef TF_SCALAR_H
@@ -71,12 +64,19 @@ HectorMappingRos::HectorMappingRos()
 , tfB_(0)
 , map__publish_thread_(0)
 , initial_pose_set_(true)
+, load_map_(false)
+, load_status_(false)
+, first_scan_(true)
+, initial_pose_slam_()
+, mapr_()
+, map_points_()
+, initialscanguess_()
 {
 	ros::NodeHandle private_nh_("~");
 
 	std::string mapTopic_ = "map";
 	//Mod by Sameer
-	private_nh_.param("load_map", load_map, false);
+	private_nh_.param("load_map", load_map_, false);
 	//Mod by Sameer
 	private_nh_.param("pub_drawings", p_pub_drawings, false);
 	private_nh_.param("pub_debug_output", p_pub_debug_output_, false);
@@ -230,75 +230,12 @@ HectorMappingRos::HectorMappingRos()
 
 	lastMapPublishTime = ros::Time(0,0);
 	//Mod by Sameer
-	if(load_map == true)
+	if (load_map_)
 	{
-		mapr = ros::topic::waitForMessage<nav_msgs::OccupancyGrid>("/staticmap");
-		hectorslam::MapRepMultiMap* maprep_multimap = dynamic_cast<hectorslam::MapRepMultiMap*>(slamProcessor->mapRep);
-		hectorslam::GridMap& mod_map = maprep_multimap->mapContainer[0].getGridMap();
-		int sizeofmapX = mod_map.getSizeX();
-		int sizeofmapY = mod_map.getSizeY();
-		int sizeofmap = sizeofmapX * sizeofmapY;
-        int map_points_count = 0;
-		for(int i=0; i < sizeofmap; ++i)
-		{
-			if(mapr->data[i]==0)
-			{
-
-				mod_map.updateSetFree(i);
-			}
-			else if (mapr->data[i]==100)
-			{
-
-				mod_map.updateSetOccupied(i);
-                map_points_count++;
-			}
-		}
-        ROS_INFO("Origin of the map is at x:%f, y:%f, z:%f, posex:%f, posey:%f, posez:%f, posew:%f",mapr->info.origin.position.x, mapr->info.origin.position.y, mapr->info.origin.position.z,mapr->info.origin.orientation.x, mapr->info.origin.orientation.y, mapr->info.origin.orientation.z, mapr->info.origin.orientation.w);
-		ofstream mapwriter;
-        mapwriter.open("/home/sameer/slamstuff/map_points.csv");
-        double xoffset, yoffset, xcoord, ycoord, zcoord, mapwidth, mapheight, mapres;
-        zcoord = 0;
-        xoffset = 0;
-        yoffset = 0;
-        xoffset = mapr->info.origin.position.x;
-        yoffset = mapr->info.origin.position.y;
-        mapwidth = mapr->info.width;
-        mapheight = mapr->info.height;
-        mapres = mapr->info.resolution;
-        ROS_INFO("Saving map into csv, hold on.. ");
-        int count = 0;
-        int occ_count = 0;
-        map_points = Eigen::MatrixXd::Zero(map_points_count,2);
-        for(int i=0;i<mapheight; i++)
-        {
-            for(int j=0;j<mapwidth;j++)
-            {
-                if(mapr->data[count]==100)
-                {
-                    xcoord = j*mapres + xoffset;
-                    ycoord = i*mapres + yoffset;
-                    map_points(occ_count,0) = xcoord;
-                    map_points(occ_count,1) = ycoord;
-                    mapwriter<<map_points(occ_count,0)<<","<<map_points(occ_count,1)<<","<<0<<endl;
-                    occ_count++;
-                }
-                count++;
-            }
-        }
-        mapwriter.close();
-        ROS_INFO(" ..Done");
-        ros::Time mapTime (ros::Time::now());
-		publishMap(mapPubContainer[0],slamProcessor->getGridMap(0), mapTime, slamProcessor->getMapMutex(0));
-		//mod_map.updateSetFree(0);
-		ROS_INFO("Hi, you have chosen to load a stored map!");
-		ROS_INFO("Please set initial position of robot before any further map building");
-		initial_pose_slam = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("/initialpose");
-		ROS_INFO("Thank You, now the system will try to improve your estimate using a point matching algorithm.");
-		initialPoseCallback(initial_pose_slam);
-		tf_.clear();
+        loadMap();
 	}
 
-	LOAD_STATUS = true;
+	load_status_ = true;
 	//Mod by Sameer
 }
 
@@ -331,11 +268,11 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     double size_estimate;
     size_estimate = (maxangle-minangle)/angleinc + 1;
     for(int i=0;i<int(size_estimate);i++)
-    { 
+    {
         lrange = scan.ranges[i];
         if(lrange>=minrange && lrange<=maxrange)
         {
-           current_angle = minangle + i*angleinc;  
+           current_angle = minangle + i*angleinc;
            laserx = lrange*cos(current_angle);
            lasery = lrange*sin(current_angle);
            scanwriter<<laserx<<","<<lasery<<endl;
@@ -343,7 +280,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     }
     scanwriter.close();
     geometry_msgs::PoseWithCovarianceStamped guesspose;
-    guesspose = *initial_pose_slam;
+    guesspose = *initial_pose_slam_;
     Eigen::Quaternionf quat = Eigen::Quaternionf(guesspose.pose.pose.orientation.w,guesspose.pose.pose.orientation.x,guesspose.pose.pose.orientation.y,guesspose.pose.pose.orientation.z);
     Eigen::Matrix3f rot = quat.toRotationMatrix();
     Eigen::Vector4f t;
@@ -357,7 +294,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     trafo.block<3,3>(0,0) = rot;
     trafo.rightCols<1>() = t;
     Eigen::Vector4f laserpoint;
-    initialscanguess = Eigen::MatrixXd::Zero(int(size_estimate),2);
+    initialscanguess_ = Eigen::MatrixXd::Zero(int(size_estimate),2);
     scanwriter.open("/home/sameer/slamstuff/laserscan_transformed.csv");
     int count = 0;
     for(int i=0;i<int(size_estimate);i++)
@@ -373,9 +310,9 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
             laserpoint(2) = 0;
             laserpoint(3) = 1;
             laserpoint = trafo*laserpoint;
-            initialscanguess(count,0) = laserpoint(0)/laserpoint(3);
-            initialscanguess(count,1) = laserpoint(1)/laserpoint(3);
-            scanwriter<<initialscanguess(count,0)<<","<<initialscanguess(count,1)<<endl;
+            initialscanguess_(count,0) = laserpoint(0)/laserpoint(3);
+            initialscanguess_(count,1) = laserpoint(1)/laserpoint(3);
+            scanwriter<<initialscanguess_(count,0)<<","<<initialscanguess_(count,1)<<endl;
             count++;
         }
     }
@@ -383,28 +320,28 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
-    cloud_in->width = map_points.rows();
+    cloud_in->width = map_points_.rows();
     cloud_in->height = 1;
     cloud_in->is_dense = true;
     cloud_in->points.resize(cloud_in->width*cloud_in->height);
     count = 0;
     for (size_t i = 0; i< cloud_in->points.size(); ++i)
     {
-        cloud_in->points[i].x = map_points(count,0);
-        cloud_in->points[i].y = map_points(count,1);
+        cloud_in->points[i].x = map_points_(count,0);
+        cloud_in->points[i].y = map_points_(count,1);
         cloud_in->points[i].z = 0;
         count++;
     }
-    
-    cloud_out->width = initialscanguess.rows();
+
+    cloud_out->width = initialscanguess_.rows();
     cloud_out->height = 1;
     cloud_out->is_dense = true;
     cloud_out->points.resize(cloud_out->width*cloud_out->height);
     count = 0;
     for (size_t i = 0; i< cloud_out->points.size(); ++i)
     {
-        cloud_out->points[i].x = initialscanguess(count,0);
-        cloud_out->points[i].y = initialscanguess(count,1);
+        cloud_out->points[i].x = initialscanguess_(count,0);
+        cloud_out->points[i].y = initialscanguess_(count,1);
         cloud_out->points[i].z = 0;
         count++;
     }
@@ -444,10 +381,10 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     guesspose.pose.pose.orientation.y = quat.y();
     guesspose.pose.pose.orientation.z = quat.z();
     scanwriter.open("/home/sameer/slamstuff/laserscan_corrected.csv");
-    for (int i = 0; i<initialscanguess.rows(); i++)
+    for (int i = 0; i<initialscanguess_.rows(); i++)
     {
-        laserpoint(0) = initialscanguess(i,0);
-        laserpoint(1) = initialscanguess(i,1);
+        laserpoint(0) = initialscanguess_(i,0);
+        laserpoint(1) = initialscanguess_(i,1);
         laserpoint(2) = 0;
         laserpoint(3) = 1;
         laserpoint = correction*laserpoint;
@@ -462,9 +399,9 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 }
 void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 {
-    if(FIRST_SCAN)
+    if(first_scan_)
     {
-        FIRST_SCAN = false;
+        first_scan_ = false;
         poseCorrection(scan);
     }
 	scan.header.stamp = ros::Time::now();
@@ -478,8 +415,9 @@ void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 	if (!p_use_tf_scan_transformation_)
 	{
 		if (rosLaserScanToDataContainer(scan, laserScanContainer,slamProcessor->getScaleToMap()))
-		{ 
-			if (initial_pose_set_ && LOAD_STATUS){
+		{
+			if (initial_pose_set_ && load_status_)
+			{
 				initial_pose_set_ = false;
 				ROS_INFO("Using initial pose with world coords x: %f y: %f yaw: %f", initial_pose_[0], initial_pose_[1], initial_pose_[2]);
 				slamProcessor->update(laserScanContainer,initial_pose_,true);
@@ -487,7 +425,7 @@ void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 			else
 			{
 				slamProcessor->update(laserScanContainer,slamProcessor->getLastScanMatchPose());
-			} 
+			}
 		}
 	}
 	else
@@ -508,13 +446,15 @@ void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 		Eigen::Vector3f startEstimate(Eigen::Vector3f::Zero());
 
 		if(rosPointCloudToDataContainer(laser_point_cloud_, laserTransform, laserScanContainer, slamProcessor->getScaleToMap()))
-		{ 
-		//	ROS_INFO("%s",LOAD_STATUS ? "true":"false");
-			if (initial_pose_set_ && LOAD_STATUS){
+		{
+		//	ROS_INFO("%s",load_status_ ? "true":"false");
+			if (initial_pose_set_ && load_status_)
+			{
 				initial_pose_set_ = false;
 				startEstimate = initial_pose_;
-			}else if (p_use_tf_pose_start_estimate_){
-
+			}
+			else if (p_use_tf_pose_start_estimate_)
+			{
 				try
 				{
 					tf::StampedTransform stamped_pose;
@@ -542,9 +482,10 @@ void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 			}else{
 				slamProcessor->update(laserScanContainer, startEstimate);
 			}
-		} 
+		}
 
-		if (initial_pose_set_ && LOAD_STATUS){
+		if (initial_pose_set_ && load_status_)
+		{
 			initial_pose_set_ = false;
 			startEstimate = initial_pose_;
 			ROS_INFO("boo");
@@ -630,7 +571,7 @@ void HectorMappingRos::publishMap(MapPublisherContainer& mapPublisher, const hec
 	nav_msgs::GetMap::Response& map_ (mapPublisher.map_);
 
 	//only update map if it changed
-	if (lastGetMapUpdateIndex != gridMap.getUpdateIndex() || LOAD_STATUS==false )  
+	if (lastGetMapUpdateIndex != gridMap.getUpdateIndex() || !load_status_)
 	{
         //ROS_INFO("heyhey");
 		int sizeX = gridMap.getSizeX();
@@ -806,4 +747,74 @@ void HectorMappingRos::initialPoseCallback(const geometry_msgs::PoseWithCovarian
 	ROS_INFO("Setting initial pose with world coords x: %f y: %f yaw: %f bleh ", initial_pose_[0], initial_pose_[1], initial_pose_[2]);
 }
 
+void HectorMappingRos::loadMap()
+{
+    mapr_ = ros::topic::waitForMessage<nav_msgs::OccupancyGrid>("staticmap");
+    hectorslam::MapRepMultiMap* maprep_multimap = dynamic_cast<hectorslam::MapRepMultiMap*>(slamProcessor->mapRep);
+    hectorslam::GridMap& mod_map = maprep_multimap->mapContainer[0].getGridMap();
+    int sizeofmapX = mod_map.getSizeX();
+    int sizeofmapY = mod_map.getSizeY();
+    int sizeofmap = sizeofmapX * sizeofmapY;
+    int map_points_count = 0;
+    for (int i = 0; i < sizeofmap; ++i)
+    {
+        if (mapr_->data[i] == 0)
+        {
 
+            mod_map.updateSetFree(i);
+        }
+        else if (mapr_->data[i] == 100)
+        {
+
+            mod_map.updateSetOccupied(i);
+            map_points_count++;
+        }
+    }
+    ROS_INFO("Origin of the map is at x:%f, y:%f, z:%f, posex:%f, posey:%f, posez:%f, posew:%f",
+            mapr_->info.origin.position.x, mapr_->info.origin.position.y,
+            mapr_->info.origin.position.z, mapr_->info.origin.orientation.x,
+            mapr_->info.origin.orientation.y, mapr_->info.origin.orientation.z,
+            mapr_->info.origin.orientation.w);
+    ofstream mapwriter;
+    mapwriter.open("/home/sameer/slamstuff/map_points_.csv");
+    double xoffset, yoffset, xcoord, ycoord, zcoord, mapwidth, mapheight, mapres;
+    zcoord = 0;
+    xoffset = 0;
+    yoffset = 0;
+    xoffset = mapr_->info.origin.position.x;
+    yoffset = mapr_->info.origin.position.y;
+    mapwidth = mapr_->info.width;
+    mapheight = mapr_->info.height;
+    mapres = mapr_->info.resolution;
+    ROS_INFO("Saving map into csv, hold on.. ");
+    int count = 0;
+    int occ_count = 0;
+    map_points_ = Eigen::MatrixXd::Zero(map_points_count, 2);
+    for (int i = 0; i < mapheight; i++)
+    {
+        for (int j = 0; j < mapwidth; j++)
+        {
+            if (mapr_->data[count] == 100)
+            {
+                xcoord = j * mapres + xoffset;
+                ycoord = i * mapres + yoffset;
+                map_points_(occ_count, 0) = xcoord;
+                map_points_(occ_count, 1) = ycoord;
+                mapwriter << map_points_(occ_count, 0) << "," << map_points_(occ_count, 1) << "," << 0 << endl;
+                occ_count++;
+            }
+            count++;
+        }
+    }
+    mapwriter.close();
+    ROS_INFO(" ..Done");
+    ros::Time mapTime(ros::Time::now());
+    publishMap(mapPubContainer[0], slamProcessor->getGridMap(0), mapTime, slamProcessor->getMapMutex(0));
+    //mod_map.updateSetFree(0);
+    ROS_INFO("Hi, you have chosen to load a stored map!");
+    ROS_INFO("Please set initial position of robot before any further map building");
+    initial_pose_slam_ = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("/initialpose");
+    ROS_INFO("Thank You, now the system will try to improve your estimate using a point matching algorithm.");
+    initialPoseCallback(initial_pose_slam_);
+    tf_.clear();
+}
