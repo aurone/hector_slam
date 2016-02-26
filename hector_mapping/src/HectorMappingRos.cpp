@@ -259,23 +259,23 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 {
     ofstream scanwriter;
     scanwriter.open("laserscan.csv");
-    double minangle=0, maxangle=0, angleinc=0, minrange=0, maxrange=0, lrange=0, laserx=0, lasery=0, current_angle=0;
+    double minangle = 0, maxangle = 0, angleinc = 0, minrange = 0, maxrange = 0, lrange = 0, laserx = 0, lasery = 0, current_angle = 0;
     minangle = scan.angle_min;
     maxangle = scan.angle_max;
     minrange = scan.range_min;
     maxrange = scan.range_max;
     angleinc = scan.angle_increment;
     double size_estimate;
-    size_estimate = (maxangle-minangle)/angleinc + 1;
-    for(int i=0;i<int(size_estimate);i++)
+    size_estimate = (maxangle - minangle) / angleinc + 1;
+    for (int i = 0; i < int(size_estimate); i++)
     {
         lrange = scan.ranges[i];
-        if(lrange>=minrange && lrange<=maxrange)
+        if (lrange >= minrange && lrange <= maxrange)
         {
-           current_angle = minangle + i*angleinc;
-           laserx = lrange*cos(current_angle);
-           lasery = lrange*sin(current_angle);
-           scanwriter<<laserx<<","<<lasery<<endl;
+            current_angle = minangle + i * angleinc;
+            laserx = lrange * cos(current_angle);
+            lasery = lrange * sin(current_angle);
+            scanwriter << laserx << "," << lasery << endl;
         }
     }
     scanwriter.close();
@@ -330,8 +330,8 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
         if (lrange >= minrange && lrange <= maxrange)
         {
             current_angle = minangle + i * angleinc;
-            laserx = lrange*cos(current_angle);
-            lasery = lrange*sin(current_angle);
+            laserx = lrange * cos(current_angle);
+            lasery = lrange * sin(current_angle);
             laser_in.setX(laserx);
             laser_in.setY(lasery);
             laser_in.setZ(0);
@@ -340,26 +340,26 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
             laserpoint(1) = laser_in.y();
             laserpoint(2) = 0;
             laserpoint(3) = 1;
-            laserpoint = trafo_base_world*laserpoint;
-            initialscanguess_(count,0) = laserpoint(0) / laserpoint(3);
-            initialscanguess_(count,1) = laserpoint(1) / laserpoint(3);
-            scanwriter<<initialscanguess_(count,0)<<","<<initialscanguess_(count,1)<<endl;
+            laserpoint = trafo_base_world * laserpoint;
+            initialscanguess_(count, 0) = laserpoint(0) / laserpoint(3);
+            initialscanguess_(count, 1) = laserpoint(1) / laserpoint(3);
+            scanwriter << initialscanguess_(count, 0) << "," << initialscanguess_(count, 1) << endl;
             count++;
         }
     }
     scanwriter.close();
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZ>);
     cloud_in->width = map_points_.rows();
     cloud_in->height = 1;
     cloud_in->is_dense = true;
-    cloud_in->points.resize(cloud_in->width*cloud_in->height);
+    cloud_in->points.resize(cloud_in->width * cloud_in->height);
     count = 0;
     for (size_t i = 0; i< cloud_in->points.size(); ++i)
     {
-        cloud_in->points[i].x = map_points_(count,0);
-        cloud_in->points[i].y = map_points_(count,1);
+        cloud_in->points[i].x = map_points_(count, 0);
+        cloud_in->points[i].y = map_points_(count, 1);
         cloud_in->points[i].z = 0;
         count++;
     }
@@ -367,12 +367,12 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     cloud_out->width = initialscanguess_.rows();
     cloud_out->height = 1;
     cloud_out->is_dense = true;
-    cloud_out->points.resize(cloud_out->width*cloud_out->height);
+    cloud_out->points.resize(cloud_out->width * cloud_out->height);
     count = 0;
     for (size_t i = 0; i< cloud_out->points.size(); ++i)
     {
-        cloud_out->points[i].x = initialscanguess_(count,0);
-        cloud_out->points[i].y = initialscanguess_(count,1);
+        cloud_out->points[i].x = initialscanguess_(count, 0);
+        cloud_out->points[i].y = initialscanguess_(count, 1);
         cloud_out->points[i].z = 0;
         count++;
     }
@@ -423,7 +423,7 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     }
     scanwriter.close();
     tf::Pose correctpose;
-    tf::poseMsgToTF(guesspose.pose.pose,correctpose);
+    tf::poseMsgToTF(guesspose.pose.pose, correctpose);
     initial_pose_(0) = guesspose.pose.pose.position.x;
     initial_pose_(1) = guesspose.pose.pose.position.y;
     initial_pose_(2) = tf::getYaw(correctpose.getRotation());
