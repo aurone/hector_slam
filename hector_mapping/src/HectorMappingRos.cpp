@@ -281,37 +281,68 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     scanwriter.close();
     geometry_msgs::PoseWithCovarianceStamped guesspose;
     guesspose = *initial_pose_slam_;
-    Eigen::Quaternionf quat = Eigen::Quaternionf(guesspose.pose.pose.orientation.w,guesspose.pose.pose.orientation.x,guesspose.pose.pose.orientation.y,guesspose.pose.pose.orientation.z);
-    Eigen::Matrix3f rot = quat.toRotationMatrix();
-    Eigen::Vector4f t;
-    t(0) = guesspose.pose.pose.position.x;
-    t(1) = guesspose.pose.pose.position.y;
-    t(2) = guesspose.pose.pose.position.z;
-    t(3) = 1;
-    ROS_INFO("Quaternion is %f , %f, %f, %f",guesspose.pose.pose.orientation.w,guesspose.pose.pose.orientation.x,guesspose.pose.pose.orientation.y,guesspose.pose.pose.orientation.z);
-    Eigen::Matrix4f trafo;
-    trafo.setIdentity();
-    trafo.block<3,3>(0,0) = rot;
-    trafo.rightCols<1>() = t;
+    // Basically we want to transform the points from the laser frame to the
+    // world frame, for this purpose we need two transforms, one from the laser
+    // frame to the base frame and one from the base frame to the world frame the
+    // transform from the laser frame to the base frame is already given and is
+    // fixed. The transform from the base frame to the world frame is on which we
+    // have to determine, after correction using ICP. This is given in the form
+    // of a "guesspose" and is then refined and this refinement is reflected in
+    // the form of an updated guesspose of the robot which in turn is the updated
+    // initial pose of the robot. Make the transformation matrix from the base
+    // frame of the robot to the world
+    Eigen::Quaternionf quat_base_world(
+            guesspose.pose.pose.orientation.w,
+            guesspose.pose.pose.orientation.x,
+            guesspose.pose.pose.orientation.y,
+            guesspose.pose.pose.orientation.z);
+    Eigen::Matrix3f rot_base_world = quat_base_world.toRotationMatrix();
+    Eigen::Vector4f t_base_world;
+    t_base_world(0) = guesspose.pose.pose.position.x;
+    t_base_world(1) = guesspose.pose.pose.position.y;
+    t_base_world(2) = guesspose.pose.pose.position.z;
+    t_base_world(3) = 1;
+    ROS_INFO("[sameer][base-world transform] Quaternion is %f , %f, %f, %f", guesspose.pose.pose.orientation.w, guesspose.pose.pose.orientation.x, guesspose.pose.pose.orientation.y, guesspose.pose.pose.orientation.z);
+    Eigen::Matrix4f trafo_base_world;
+    trafo_base_world.setIdentity();
+    trafo_base_world.block<3, 3>(0, 0) = rot_base_world;
+    trafo_base_world.rightCols<1>() = t_base_world;
+
+    //Make the transformation matrix from laser frame to the base frame of the robot
+    ros::Duration dur(0.5);
+    tf::StampedTransform laserTransform;
+    if (tf_.waitForTransform(p_base_frame_, scan.header.frame_id, ros::Time(0), dur))
+    {
+        tf_.lookupTransform(p_base_frame_, scan.header.frame_id, ros::Time(0), laserTransform);
+    }
+    else
+    {
+        ROS_INFO("[pose correction][sameer]Could not get transform from base frame to laser frame, something is wrong.");
+    }
     Eigen::Vector4f laserpoint;
-    initialscanguess_ = Eigen::MatrixXd::Zero(int(size_estimate),2);
+    tf::Vector3 laser_in;
+    initialscanguess_ = Eigen::MatrixXd::Zero(int(size_estimate), 2);
     scanwriter.open("laserscan_transformed.csv");
     int count = 0;
-    for(int i=0;i<int(size_estimate);i++)
+    for (int i = 0; i < int(size_estimate); i++)
     {
         lrange = scan.ranges[i];
-        if(lrange>=minrange && lrange<=maxrange)
+        if (lrange >= minrange && lrange <= maxrange)
         {
-            current_angle = minangle + i*angleinc;
+            current_angle = minangle + i * angleinc;
             laserx = lrange*cos(current_angle);
             lasery = lrange*sin(current_angle);
-            laserpoint(0) = laserx;
-            laserpoint(1) = lasery;
+            laser_in.setX(laserx);
+            laser_in.setY(lasery);
+            laser_in.setZ(0);
+            laser_in = laserTransform(laser_in);
+            laserpoint(0) = laser_in.x();
+            laserpoint(1) = laser_in.y();
             laserpoint(2) = 0;
             laserpoint(3) = 1;
-            laserpoint = trafo*laserpoint;
-            initialscanguess_(count,0) = laserpoint(0)/laserpoint(3);
-            initialscanguess_(count,1) = laserpoint(1)/laserpoint(3);
+            laserpoint = trafo_base_world*laserpoint;
+            initialscanguess_(count,0) = laserpoint(0) / laserpoint(3);
+            initialscanguess_(count,1) = laserpoint(1) / laserpoint(3);
             scanwriter<<initialscanguess_(count,0)<<","<<initialscanguess_(count,1)<<endl;
             count++;
         }
@@ -356,39 +387,39 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     pcl::PointCloud<pcl::PointXYZ> temp;
     pcl::PointCloud<pcl::PointXYZ>::Ptr Final(new pcl::PointCloud<pcl::PointXYZ>);
     correction.setIdentity();
-   for(int i = 0; i<50; i++)
-   {
-    icp.setMaxCorrespondenceDistance(seed_dist/(pow(2,i)));
-    //icp.setRANSACOutlierRejectionThreshold(0.01);
-    icp.align(temp);
-    *Final = temp;
-    temp.clear();
-    icp.setInputSource(Final);
-    cout<<"ICP result:"<<icp.hasConverged()<<" with quality:"<<icp.getFitnessScore()<<endl;
-    cout<<"Correspondence distance is:"<<icp.getMaxCorrespondenceDistance()<<endl;
-    cout<<icp.getFinalTransformation()<<endl;
-    correction = (icp.getFinalTransformation())*correction;
-   }
-    trafo = correction*trafo;
-    rot = trafo.block<3,3>(0,0);
-    t = trafo.rightCols<1>();
-    guesspose.pose.pose.position.x = t(0);
-    guesspose.pose.pose.position.y = t(1);
-    guesspose.pose.pose.position.z = t(2);
-    quat = rot;
-    guesspose.pose.pose.orientation.w = quat.w();
-    guesspose.pose.pose.orientation.x = quat.x();
-    guesspose.pose.pose.orientation.y = quat.y();
-    guesspose.pose.pose.orientation.z = quat.z();
-    scanwriter.open("laserscan_corrected.csv");
-    for (int i = 0; i<initialscanguess_.rows(); i++)
+    for (int i = 0; i < 50; i++)
     {
-        laserpoint(0) = initialscanguess_(i,0);
-        laserpoint(1) = initialscanguess_(i,1);
+        icp.setMaxCorrespondenceDistance(seed_dist / (pow(2, i)));
+        //icp.setRANSACOutlierRejectionThreshold(0.01);
+        icp.align(temp);
+        *Final = temp;
+        temp.clear();
+        icp.setInputSource(Final);
+        cout << "ICP result:" << icp.hasConverged() << " with quality:" << icp.getFitnessScore() << endl;
+        cout << "Correspondence distance is:" << icp.getMaxCorrespondenceDistance() << endl;
+        cout << icp.getFinalTransformation() << endl;
+        correction = (icp.getFinalTransformation()) * correction;
+    }
+    trafo_base_world = correction * trafo_base_world;
+    rot_base_world = trafo_base_world.block<3, 3>(0, 0);
+    t_base_world = trafo_base_world.rightCols<1>();
+    guesspose.pose.pose.position.x = t_base_world(0);
+    guesspose.pose.pose.position.y = t_base_world(1);
+    guesspose.pose.pose.position.z = t_base_world(2);
+    quat_base_world = rot_base_world;
+    guesspose.pose.pose.orientation.w = quat_base_world.w();
+    guesspose.pose.pose.orientation.x = quat_base_world.x();
+    guesspose.pose.pose.orientation.y = quat_base_world.y();
+    guesspose.pose.pose.orientation.z = quat_base_world.z();
+    scanwriter.open("laserscan_corrected.csv");
+    for (int i = 0; i < initialscanguess_.rows(); i++)
+    {
+        laserpoint(0) = initialscanguess_(i, 0);
+        laserpoint(1) = initialscanguess_(i, 1);
         laserpoint(2) = 0;
         laserpoint(3) = 1;
         laserpoint = correction*laserpoint;
-        scanwriter<<laserpoint(0)<<","<<laserpoint(1)<<endl;
+        scanwriter << laserpoint(0) << "," << laserpoint(1) << endl;
     }
     scanwriter.close();
     tf::Pose correctpose;
