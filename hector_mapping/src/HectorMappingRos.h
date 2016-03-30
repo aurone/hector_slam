@@ -115,6 +115,8 @@ protected:
   ros::Publisher twistUpdatePublisher_;
   ros::Publisher odometryPublisher_;
   ros::Publisher scan_point_cloud_publisher_;
+  ros::Publisher guess_pose_publisher_; //Mod by Sameer
+  ros::Publisher corrected_points_publisher_; //Mod by Sameer
 
   std::vector<MapPublisherContainer> mapPubContainer;
 
