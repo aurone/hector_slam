@@ -107,6 +107,7 @@ protected:
   ros::Subscriber sysMsgSubscriber_;
 
   ros::Subscriber mapSubscriber_;
+  ros::Subscriber initialposesubscriber_; //Mod by Sameer
   message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>* initial_pose_sub_;
   tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>* initial_pose_filter_;
 
@@ -196,6 +197,7 @@ protected:
   bool load_status_;
   bool first_scan_;
   geometry_msgs::PoseWithCovarianceStampedConstPtr initial_pose_slam_;
+  void initPoseCallback(const geometry_msgs::PoseWithCovarianceStamped& initialpose);
   nav_msgs::OccupancyGrid::ConstPtr mapr_;
   Eigen::MatrixXd map_points_;
   Eigen::MatrixXd initialscanguess_;
