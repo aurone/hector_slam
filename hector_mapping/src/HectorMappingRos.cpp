@@ -205,8 +205,10 @@ HectorMappingRos::HectorMappingRos()
 
 	poseUpdatePublisher_ = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>(p_pose_update_topic_, 1, false);
 	posePublisher_ = node_.advertise<geometry_msgs::PoseStamped>("slam_out_pose", 1, false);
+	corrected_points_publisher_ = node_.advertise<sensor_msgs::PointCloud>("pose_correction_check",1,true); //Mod by sameer
+	guess_pose_publisher_ = private_nh_.advertise<geometry_msgs::PoseStamped>("pose_check",1,true); //Mod by sameer
 
-	scan_point_cloud_publisher_ = node_.advertise<sensor_msgs::PointCloud>("slam_cloud",1,false);
+	scan_point_cloud_publisher_ = private_nh_.advertise<sensor_msgs::PointCloud>("slam_cloud",1,false);
 
 	tfB_ = new tf::TransformBroadcaster();
 	ROS_ASSERT(tfB_);
@@ -257,8 +259,6 @@ HectorMappingRos::~HectorMappingRos()
 }
 void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
 {
-    ofstream scanwriter;
-    scanwriter.open("laserscan.csv");
     double minangle = 0, maxangle = 0, angleinc = 0, minrange = 0, maxrange = 0, lrange = 0, laserx = 0, lasery = 0, current_angle = 0;
     minangle = scan.angle_min;
     maxangle = scan.angle_max;
@@ -275,10 +275,9 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
             current_angle = minangle + i * angleinc;
             laserx = lrange * cos(current_angle);
             lasery = lrange * sin(current_angle);
-            scanwriter << laserx << "," << lasery << endl;
         }
     }
-    scanwriter.close();
+
     geometry_msgs::PoseWithCovarianceStamped guesspose;
     guesspose = *initial_pose_slam_;
     // Basically we want to transform the points from the laser frame to the
@@ -322,7 +321,6 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     Eigen::Vector4f laserpoint;
     tf::Vector3 laser_in;
     initialscanguess_ = Eigen::MatrixXd::Zero(int(size_estimate), 2);
-    scanwriter.open("laserscan_transformed.csv");
     int count = 0;
     for (int i = 0; i < int(size_estimate); i++)
     {
@@ -343,12 +341,9 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
             laserpoint = trafo_base_world * laserpoint;
             initialscanguess_(count, 0) = laserpoint(0) / laserpoint(3);
             initialscanguess_(count, 1) = laserpoint(1) / laserpoint(3);
-            scanwriter << initialscanguess_(count, 0) << "," << initialscanguess_(count, 1) << endl;
             count++;
         }
     }
-    scanwriter.close();
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZ>);
     cloud_in->width = map_points_.rows();
@@ -376,18 +371,19 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
         cloud_out->points[i].z = 0;
         count++;
     }
-    double seed_dist = 100;
+    double seed_dist = 400;
     pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
     icp.setInputSource(cloud_out);
     icp.setInputTarget(cloud_in);
-    icp.setMaximumIterations(50);
+    icp.setMaximumIterations(100);
+		icp.setRANSACOutlierRejectionThreshold(0.01);
     icp.setTransformationEpsilon(1e-8);
-    icp.setEuclideanFitnessEpsilon(0.01);
+    icp.setEuclideanFitnessEpsilon(0.005);
     Eigen::Matrix4f correction;
     pcl::PointCloud<pcl::PointXYZ> temp;
     pcl::PointCloud<pcl::PointXYZ>::Ptr Final(new pcl::PointCloud<pcl::PointXYZ>);
     correction.setIdentity();
-    for (int i = 0; i < 50; i++)
+    for (int i = 0; i < 200; i++)
     {
         icp.setMaxCorrespondenceDistance(seed_dist / (pow(2, i)));
         //icp.setRANSACOutlierRejectionThreshold(0.01);
@@ -411,19 +407,35 @@ void HectorMappingRos::poseCorrection(sensor_msgs::LaserScan scan)
     guesspose.pose.pose.orientation.x = quat_base_world.x();
     guesspose.pose.pose.orientation.y = quat_base_world.y();
     guesspose.pose.pose.orientation.z = quat_base_world.z();
-    scanwriter.open("laserscan_corrected.csv");
-    for (int i = 0; i < initialscanguess_.rows(); i++)
+		sensor_msgs::PointCloud check_cloud; //Scan to be published to check if everything is okay.
+		check_cloud.header.frame_id = p_map_frame_;
+		check_cloud.header.stamp = ros::Time::now();
+		check_cloud.points.resize(initialscanguess_.rows());
+
+		//check_cloud.channels.intensities.values.resize(initialscanguess_.rows());
+		for (int i = 0; i < initialscanguess_.rows(); i++)
     {
         laserpoint(0) = initialscanguess_(i, 0);
         laserpoint(1) = initialscanguess_(i, 1);
         laserpoint(2) = 0;
         laserpoint(3) = 1;
         laserpoint = correction*laserpoint;
-        scanwriter << laserpoint(0) << "," << laserpoint(1) << endl;
-    }
-    scanwriter.close();
+
+				check_cloud.points[i].x = laserpoint(0);
+				check_cloud.points[i].y = laserpoint(1);
+				check_cloud.points[i].z = 0.0;
+
+				//check_cloud.channels.intensity.values[i] = 0;
+  	}
+		geometry_msgs::PoseStamped check_pose;
+		check_pose.header = guesspose.header;
+		check_pose.pose = guesspose.pose.pose;
+		corrected_points_publisher_.publish(check_cloud);
+		guess_pose_publisher_.publish(check_pose);
     tf::Pose correctpose;
     tf::poseMsgToTF(guesspose.pose.pose, correctpose);
+
+
     initial_pose_(0) = guesspose.pose.pose.position.x;
     initial_pose_(1) = guesspose.pose.pose.position.y;
     initial_pose_(2) = tf::getYaw(correctpose.getRotation());
@@ -432,8 +444,24 @@ void HectorMappingRos::scanCallback(sensor_msgs::LaserScan scan)
 {
     if (first_scan_ && load_map_)
     {
-        first_scan_ = false;
-        poseCorrection(scan);
+			first_scan_ = false;
+			bool stop_estimation = false;
+			ROS_INFO("Hi, you have chosen to load a stored map!");
+	    ROS_INFO("Please set initial position of robot before any further map building");
+			while(!stop_estimation)
+			{
+	    	initial_pose_slam_ = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("/initialpose");
+	    	ROS_INFO("[slam correction] Correcting pose..");
+				initialPoseCallback(initial_pose_slam_);
+				poseCorrection(scan);
+				ROS_INFO("Is the pose satisfactory ? Y/N");
+				int c;
+				c = getchar();
+				if(c == 'Y' || c == 'y')
+				{
+					stop_estimation = true;
+				}
+			}
     }
 	scan.header.stamp = ros::Time::now();
 	if (hectorDrawings)
@@ -775,7 +803,7 @@ void HectorMappingRos::initialPoseCallback(const geometry_msgs::PoseWithCovarian
 	tf::Pose pose;
 	tf::poseMsgToTF(msg->pose.pose, pose);
 	initial_pose_ = Eigen::Vector3f(msg->pose.pose.position.x, msg->pose.pose.position.y, tf::getYaw(pose.getRotation()));
-	ROS_INFO("Setting initial pose with world coords x: %f y: %f yaw: %f bleh ", initial_pose_[0], initial_pose_[1], initial_pose_[2]);
+	ROS_INFO("Setting initial pose with world coords x: %f y: %f yaw: %f", initial_pose_[0], initial_pose_[1], initial_pose_[2]);
 }
 
 void HectorMappingRos::loadMap()
@@ -842,10 +870,6 @@ void HectorMappingRos::loadMap()
     ros::Time mapTime(ros::Time::now());
     publishMap(mapPubContainer[0], slamProcessor->getGridMap(0), mapTime, slamProcessor->getMapMutex(0));
     //mod_map.updateSetFree(0);
-    ROS_INFO("Hi, you have chosen to load a stored map!");
-    ROS_INFO("Please set initial position of robot before any further map building");
-    initial_pose_slam_ = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("/initialpose");
-    ROS_INFO("Thank You, now the system will try to improve your estimate using a point matching algorithm.");
-    initialPoseCallback(initial_pose_slam_);
+
     tf_.clear();
 }
