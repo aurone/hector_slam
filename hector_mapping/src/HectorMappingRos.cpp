@@ -202,7 +202,7 @@ HectorMappingRos::HectorMappingRos()
 	ROS_INFO("HectorSM p_laser_z_max_value_: %f", p_laser_z_max_value_);
 	scanSubscriber_ = node_.subscribe(p_scan_topic_, p_scan_subscriber_queue_size_, &HectorMappingRos::scanCallback, this);
 	sysMsgSubscriber_ = node_.subscribe(p_sys_msg_topic_, 2, &HectorMappingRos::sysMsgCallback, this);
-	initialposesubscriber_ = private_nh_.subscribe("/initialpose",1,&HectorMappingRos::initPoseCallback,this);
+	initialposesubscriber_ = private_nh_.subscribe("initialpose",1,&HectorMappingRos::initPoseCallback,this);
 
 	poseUpdatePublisher_ = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>(p_pose_update_topic_, 1, false);
 	posePublisher_ = node_.advertise<geometry_msgs::PoseStamped>("slam_out_pose", 1, false);
@@ -222,27 +222,26 @@ HectorMappingRos::HectorMappingRos()
 }
 */
 
-initial_pose_sub_ = new message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>(node_, "initialpose", 2);
-initial_pose_filter_ = new tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>(*initial_pose_sub_, tf_, p_map_frame_, 2);
-initial_pose_filter_->registerCallback(boost::bind(&HectorMappingRos::initialPoseCallback, this, _1));
+    initial_pose_sub_ = new message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>(node_, "initialpose", 2);
+    initial_pose_filter_ = new tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>(*initial_pose_sub_, tf_, p_map_frame_, 2);
+    initial_pose_filter_->registerCallback(boost::bind(&HectorMappingRos::initialPoseCallback, this, _1));
 
+    map__publish_thread_ = new boost::thread(boost::bind(&HectorMappingRos::publishMapLoop, this, p_map_pub_period_));
 
-map__publish_thread_ = new boost::thread(boost::bind(&HectorMappingRos::publishMapLoop, this, p_map_pub_period_));
+    map_to_odom_.setIdentity();
 
-map_to_odom_.setIdentity();
+    lastMapPublishTime = ros::Time(0,0);
 
-lastMapPublishTime = ros::Time(0,0);
-//Mod by Sameer
-if (load_map_)
-{
-	loadMap();
-	first_scan_= true;
-	initial_pose_slam_ = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("/initialpose");
-	initialPoseCallback(initial_pose_slam_);
-}
+    if (load_map_)
+    {
+        loadMap();
+        first_scan_= true;
+        initial_pose_slam_ = ros::topic::waitForMessage<geometry_msgs::PoseWithCovarianceStamped>("initialpose");
+        initialPoseCallback(initial_pose_slam_);
+    }
 
-load_status_ = true;
-//Mod by Sameer
+    load_status_ = true;
+
 }
 
 HectorMappingRos::~HectorMappingRos()
